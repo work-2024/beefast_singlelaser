@@ -1,48 +1,58 @@
 #include "cliff_detection.hpp"
 
 #include <algorithm>
+#include <mutex>
 
 #include "ranging_along_edges.hpp"
+constexpr int leftMinIndex = 79;
+constexpr int rightMaxIndex = 421;
+
+void CliffDetectionNode::SetLimitDistance(float limitDistance) {
+    std::lock_guard<std::mutex> lock(LimitDistanceMtx_);
+    LimitDistance_ = limitDistance;
+}
 std::tuple<int, int, int> CliffDetectionNode::MaxAdjacentEqualCount(const std::vector<float>& vec) {
     if (vec.empty()) {
         return { 0, -1, -1 };  // 如果向量为空，返回数量0，起始和结束位置为-1
     }
 
-    int max_count = 1;      // 最大相邻相同元素数量
-    int current_count = 1;  // 当前相邻相同元素数量
-    int max_start = 0;      // 最大相邻元素序列的起始位置
-    int max_end = 0;        // 最大相邻元素序列的结束位置
-    int current_start = 0;  // 当前相邻相同元素序列的起始位置
+    int maxCount = 1;      // 最大相邻相同元素数量
+    int currentCount = 1;  // 当前相邻相同元素数量
+    int maxStart = 0;      // 最大相邻元素序列的起始位置
+    int maxEnd = 0;        // 最大相邻元素序列的结束位置
+    int currentStart = 0;  // 当前相邻相同元素序列的起始位置
 
     // 遍历向量，寻找相邻相同的元素
     for (size_t i = 0; i < vec.size(); ++i) {
-        if (vec[i] > LimitDistance_) {
-            ++current_count;
+        if (i > leftMinIndex && i <= rightMaxIndex)
+            continue;
+        if (std::isnan(vec[i]) || vec[i] > LimitDistance_) {
+            ++currentCount;
         } else {
             // 检查是否需要更新最大值
-            if (current_count > max_count) {
-                max_count = current_count;
-                max_start = current_start;
-                max_end = i - 1;
+            if (currentCount > maxCount) {
+                maxCount = currentCount;
+                maxStart = currentStart;
+                maxEnd = i - 1;
             }
             // 重置计数器并更新当前序列的起始位置
-            current_count = 1;
-            current_start = i;
+            currentCount = 1;
+            currentStart = i;
         }
     }
 
     // 最后再比较一次，因为可能最大序列在数组结尾
-    if (current_count > max_count) {
-        max_count = current_count;
-        max_start = current_start;
-        max_end = vec.size() - 1;
+    if (currentCount > maxCount) {
+        maxCount = currentCount;
+        maxStart = currentStart;
+        maxEnd = vec.size() - 1;
     }
 
-    return { max_count, max_start, max_end };
+    return { maxCount, maxStart, maxEnd };
 }
 
 CallbackReturn CliffDetectionNode::on_configure(const rclcpp_lifecycle::State& state) {
-    this->declare_parameter<float>("LimitDistance", 0.5);  //使用LimitDistance参数方便调试
+    this->declare_parameter<float>("LimitDistance", 0.5f);  //使用LimitDistance参数方便调试
     this->get_parameter("LimitDistance", LimitDistance_);
 
     LaserSubscription_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
@@ -55,7 +65,7 @@ CallbackReturn CliffDetectionNode::on_configure(const rclcpp_lifecycle::State& s
     auto fre_cb = [this](const rclcpp::Parameter& p) {
         //做自己的操作
         RCLCPP_INFO(this->get_logger(), "Parameter 'LimitDistance' changed to: %f", p.as_double());
-        this->LimitDistance_ = p.as_double();
+        SetLimitDistance(p.as_double());
     };
 
     //注册参数变更回调
@@ -67,7 +77,6 @@ CallbackReturn CliffDetectionNode::on_activate(const rclcpp_lifecycle::State& st
     RCLCPP_INFO(rclcpp::get_logger("cliff_detection"), "activating...");
 
     PubCliflag_->on_activate();
-
     return CallbackReturn::SUCCESS;
 }
 
@@ -101,8 +110,21 @@ void CliffDetectionNode::laser_callback(
 
     if (counts > 10) {
         pubData.cliflag = true;
-        auto nowAngleIndex = (endPoint - startPoint) / 2;
-        float nowAngle = nowAngleIndex * scan.angle_increment + scan.angle_min;
+        float startAngle = RADIAN_TO_ANGLE(startPoint * scan.angle_increment + scan.angle_min);
+        float endAngle = RADIAN_TO_ANGLE(endPoint * scan.angle_increment + scan.angle_min);
+        auto AngleProc = [](float* angle) -> void {
+            if (*angle > 300.0f) {
+                *angle -= 300.0f;
+            }
+        };
+        AngleProc(&startAngle);
+        AngleProc(&endAngle);
+        float nowAngle = 0;
+        if (startAngle >= 0 && endAngle >= 0) {
+            nowAngle = (startAngle + endAngle) / 2;
+        } else {
+            nowAngle = startAngle + endAngle;
+        }
         pubData.angle = nowAngle;
         goto end;
     }

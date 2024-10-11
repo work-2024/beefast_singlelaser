@@ -224,8 +224,9 @@ void SingleLaserLifecycle::ToLaserscanMessagePublish(ldlidar_ssl::Points2D& src)
     output.time_increment = scan_time / (beam_size - 1);
     output.scan_time = scan_time;
 
-    RCLCPP_INFO(this->get_logger(), "angle_min : %f ,angle_max : %f ,angle_increment : %f , beam_size : %d", angle_min,
-                angle_max, angle_increment, beam_size);
+    // RCLCPP_INFO(this->get_logger(), "angle_min : %f ,angle_max : %f ,angle_increment : %f , beam_size : %d",
+    // angle_min,
+    //             angle_max, angle_increment, beam_size);
 
     /*First fill all the data with NaN*/
     output.ranges.assign(beam_size, std::numeric_limits<float>::quiet_NaN());

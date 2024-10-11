@@ -36,11 +36,11 @@ def generate_launch_description():
     pub_cliff_detection_node = LifecycleNode(
         package='beefast_single_laser',
         executable='cliff_detection',
-        name='lifecycle_pub_distance',
-        namespace='cliff_detection',
+        name='lifecycle_cliff_detection',
+        namespace='',
         output='screen',
         parameters=[
-            {'LimitDistance': '0.5'},
+            {'LimitDistance': 0.5},
         ],
     )
 
