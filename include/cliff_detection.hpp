@@ -1,15 +1,10 @@
 #pragma once
 
-#include <chrono>
-#include <cmath>
-#include <memory>
-#include <thread>
 #include <tuple>
 #include <vector>
 
 #include "beefast_interfaces/msg/cliff_detection.hpp"
-#include "nav2_util/lifecycle_node.hpp"
-#include "ros2_api.h"
+#include "lifecycle_single_laser.hpp"
 
 using CallbackReturn = nav2_util::CallbackReturn;
 

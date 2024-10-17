@@ -6,6 +6,7 @@
 #include "ranging_along_edges.hpp"
 constexpr int leftMinIndex = 79;
 constexpr int rightMaxIndex = 421;
+constexpr int cliffRangeError = 3;  // 阈值，表示允许的误差范围
 
 void CliffDetectionNode::SetLimitDistance(float limitDistance) {
     std::lock_guard<std::mutex> lock(LimitDistanceMtx_);
@@ -21,14 +22,25 @@ std::tuple<int, int, int> CliffDetectionNode::MaxAdjacentEqualCount(const std::v
     int maxStart = 0;      // 最大相邻元素序列的起始位置
     int maxEnd = 0;        // 最大相邻元素序列的结束位置
     int currentStart = 0;  // 当前相邻相同元素序列的起始位置
+    int skipCount = 0;     // 记录当前序列中不符合条件的点的个数
 
-    // 遍历向量，寻找相邻相同的元素
-    for (size_t i = 0; i < vec.size(); ++i) {
-        if (i > leftMinIndex && i <= rightMaxIndex)
-            continue;
+    // 按照点云角度顺序遍历向量，寻找相邻相同的元素
+    for (int i = leftMinIndex;; --i) {
+        if (i < 0) {
+            i = vec.size() - 1;
+        }
+        if (i < rightMaxIndex && i > leftMinIndex)
+            break;
         if (std::isnan(vec[i]) || vec[i] > LimitDistance_) {
             ++currentCount;
+            skipCount = 0;
         } else {
+            // 如果当前点不符合条件，而skipCount小于cliffRangeError(允许的误差范围)
+            if (skipCount < cliffRangeError) {
+                ++skipCount;
+                continue;
+            }
+            // 如果skipCount已经大于cliffRangeError，或者当前点符合条件
             // 检查是否需要更新最大值
             if (currentCount > maxCount) {
                 maxCount = currentCount;
@@ -52,7 +64,8 @@ std::tuple<int, int, int> CliffDetectionNode::MaxAdjacentEqualCount(const std::v
 }
 
 CallbackReturn CliffDetectionNode::on_configure(const rclcpp_lifecycle::State& state) {
-    this->declare_parameter<float>("LimitDistance", 0.5f);  //使用LimitDistance参数方便调试
+    this->declare_parameter<float>("LimitDistance",
+                                   0.5f);  //使用LimitDistance参数方便调试
     this->get_parameter("LimitDistance", LimitDistance_);
 
     LaserSubscription_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
@@ -110,21 +123,21 @@ void CliffDetectionNode::laser_callback(
 
     if (counts > 10) {
         pubData.cliflag = true;
-        float startAngle = RADIAN_TO_ANGLE(startPoint * scan.angle_increment + scan.angle_min);
-        float endAngle = RADIAN_TO_ANGLE(endPoint * scan.angle_increment + scan.angle_min);
+        float startAngle = 360.0f - RADIAN_TO_ANGLE(startPoint * scan.angle_increment + scan.angle_min);
+        float endAngle = 360.0f - RADIAN_TO_ANGLE(endPoint * scan.angle_increment + scan.angle_min);
+
+        RCLCPP_INFO(rclcpp::get_logger("cliff_detection"), "startAngle :%f  endAngle :%f", startAngle, endAngle);
         auto AngleProc = [](float* angle) -> void {
             if (*angle > 300.0f) {
-                *angle -= 300.0f;
+                *angle = *angle - 360.0f;
             }
         };
         AngleProc(&startAngle);
         AngleProc(&endAngle);
+
         float nowAngle = 0;
-        if (startAngle >= 0 && endAngle >= 0) {
-            nowAngle = (startAngle + endAngle) / 2;
-        } else {
-            nowAngle = startAngle + endAngle;
-        }
+        nowAngle = (startAngle + endAngle) / 2;
+
         pubData.angle = nowAngle;
         goto end;
     }
@@ -137,7 +150,8 @@ end:
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
 
-    // auto pub_distance_node = std::make_shared< Ranging >( "ranging_along_edges" );
+    // auto pub_distance_node = std::make_shared< Ranging >( "ranging_along_edges"
+    // );
     auto pub_cliff_detection = std::make_shared<CliffDetectionNode>("cliff_detection");
     rclcpp::executors::SingleThreadedExecutor executor;
     executor.add_node(pub_cliff_detection->get_node_base_interface());
